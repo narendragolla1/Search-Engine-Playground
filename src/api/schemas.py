@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 class IndexRequest(BaseModel):
     data: List[Dict[str, Any]] = Field(..., description="The list of JSON objects to index")
     searchable_fields: List[str] = Field(..., description="The fields in the JSON objects to build the search index upon")
+    field_weights: Optional[Dict[str, float]] = Field(default=None, description="Optional weights for each field. e.g. {'Title': 2.0}")
 
 class IndexResponse(BaseModel):
     message: str
@@ -13,6 +14,7 @@ class UpdateDocumentRequest(BaseModel):
     document_id: str
     document: Dict[str, Any]
     searchable_fields: List[str]
+    field_weights: Optional[Dict[str, float]] = Field(default=None, description="Optional weights for each field.")
 
 class GenericResponse(BaseModel):
     message: str
@@ -21,6 +23,7 @@ class SearchRequest(BaseModel):
     query: str = Field(default="", description="The search query string")
     filters: Optional[Dict[str, Any]] = Field(default=None, description="Optional filters to apply before searching")
     top_k: int = Field(default=10, description="The number of results to return")
+    offset: int = Field(default=0, description="Offset for pagination")
 
 class SearchResultItem(BaseModel):
     item: Dict[str, Any]

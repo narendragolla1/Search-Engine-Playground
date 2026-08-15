@@ -30,7 +30,7 @@ app.add_middleware(
 @app.post("/index", response_model=IndexResponse)
 async def index_data(request: IndexRequest, engine: SearchEngine = Depends(get_search_engine)):
     try:
-        await run_in_threadpool(engine.index, request.data, request.searchable_fields)
+        await run_in_threadpool(engine.index, request.data, request.searchable_fields, request.field_weights)
         return IndexResponse(
             message="Successfully indexed data.",
             items_indexed=len(request.data)
@@ -41,7 +41,7 @@ async def index_data(request: IndexRequest, engine: SearchEngine = Depends(get_s
 @app.put("/document", response_model=GenericResponse)
 async def update_document(request: UpdateDocumentRequest, engine: SearchEngine = Depends(get_search_engine)):
     try:
-        await run_in_threadpool(engine.update_document, request.document_id, request.document, request.searchable_fields)
+        await run_in_threadpool(engine.update_document, request.document_id, request.document, request.searchable_fields, request.field_weights)
         return GenericResponse(message=f"Successfully updated document {request.document_id}.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -61,7 +61,8 @@ async def search(request: SearchRequest, engine: SearchEngine = Depends(get_sear
             engine.search,
             query=request.query,
             filters=request.filters,
-            top_k=request.top_k
+            top_k=request.top_k,
+            offset=request.offset
         )
         
         # Convert internal SearchResult objects to Pydantic Response schemas

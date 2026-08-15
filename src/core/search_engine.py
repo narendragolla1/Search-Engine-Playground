@@ -67,10 +67,38 @@ class SearchEngine:
                 text_parts.append(str(val))
         return " ".join(text_parts).lower()
 
+    def _build_keyword_text(self, item: Dict[str, Any], searchable_fields: List[str], field_weights: Optional[Dict[str, float]] = None) -> str:
+        """Builds text for BM25, repeating fields based on their weight for boosting."""
+        text_parts = []
+        field_weights = field_weights or {}
+        
+        for field in searchable_fields:
+            val = item.get(field)
+            if val:
+                # Default weight is 1.0. If weight is 3.0, we repeat the text 3 times.
+                weight = int(field_weights.get(field, 1.0))
+                # Ensure at least 1 repetition
+                weight = max(1, weight)
+                for _ in range(weight):
+                    text_parts.append(str(val))
+                    
+        return " ".join(text_parts).lower()
+
+    def _tokenize_for_bm25(self, text: str) -> List[str]:
+        """Tokenizes text into words and n-grams for typo tolerance."""
+        words = text.split()
+        tokens = []
+        for word in words:
+            tokens.append(word)
+            # Generate 3-grams for words longer than 3 characters
+            if len(word) > 3:
+                for i in range(len(word) - 2):
+                    tokens.append(word[i:i+3])
+        return tokens
+
     def _rebuild_bm25(self):
-        """Rebuilds the in-memory BM25 index from the current qdrant payloads. 
-        (Temporary solution until Phase 3 sparse vectors)."""
-        logger.info("Rebuilding in-memory BM25 index...")
+        """Rebuilds the in-memory BM25 index from the current qdrant payloads."""
+        logger.info("Rebuilding in-memory BM25 index with N-grams...")
         scroll_res = self.qdrant.scroll(
             collection_name=self.collection_name,
             limit=10000,
@@ -83,9 +111,9 @@ class SearchEngine:
         corpus_texts = []
         
         for point in points:
-            text = point.payload.get("_searchable_text", "")
+            text = point.payload.get("_keyword_text", point.payload.get("_searchable_text", ""))
             self.bm25_corpus_map[point.id] = text
-            corpus_texts.append(text.split())
+            corpus_texts.append(self._tokenize_for_bm25(text))
             
         if corpus_texts:
             self.bm25 = BM25Okapi(corpus_texts)
@@ -107,7 +135,7 @@ class SearchEngine:
             except ValueError:
                 return str(uuid.uuid5(uuid.NAMESPACE_OID, str(raw_id)))
 
-    def index(self, data: List[Dict[str, Any]], searchable_fields: List[str]) -> None:
+    def index(self, data: List[Dict[str, Any]], searchable_fields: List[str], field_weights: Optional[Dict[str, float]] = None) -> None:
         """
         Indexes the provided data by inserting it into Qdrant.
         """
@@ -124,11 +152,13 @@ class SearchEngine:
             point_id = self._parse_point_id(item.get("id"))
                 
             combined_text = self._build_searchable_text(item, searchable_fields)
+            keyword_text = self._build_keyword_text(item, searchable_fields, field_weights)
             texts_to_embed.append(combined_text)
             
             # Store the searchable text in the payload for BM25 and Reranker
             payload = item.copy()
             payload["_searchable_text"] = combined_text
+            payload["_keyword_text"] = keyword_text
             payload["_searchable_fields"] = searchable_fields
             
             points.append(
@@ -155,15 +185,15 @@ class SearchEngine:
         self._rebuild_bm25()
         logger.info(f"Successfully indexed {len(points)} items.")
 
-    def add_documents(self, documents: List[Dict[str, Any]], searchable_fields: List[str]):
+    def add_documents(self, documents: List[Dict[str, Any]], searchable_fields: List[str], field_weights: Optional[Dict[str, float]] = None):
         """Adds new documents to the index."""
-        self.index(documents, searchable_fields)
+        self.index(documents, searchable_fields, field_weights)
         
-    def update_document(self, document_id: str, document: Dict[str, Any], searchable_fields: List[str]):
+    def update_document(self, document_id: str, document: Dict[str, Any], searchable_fields: List[str], field_weights: Optional[Dict[str, float]] = None):
         """Updates an existing document."""
         doc = document.copy()
         doc["id"] = document_id
-        self.index([doc], searchable_fields)
+        self.index([doc], searchable_fields, field_weights)
 
     def delete_document(self, document_id: str):
         """Deletes a document from the index by ID."""
@@ -204,21 +234,26 @@ class SearchEngine:
             return models.Filter(must=must_conditions)
         return None
 
-    def search(self, query: str, filters: Dict[str, Any] = None, top_k: int = 10, rrf_k: int = 60) -> List[SearchResult]:
+    def search(self, query: str, filters: Dict[str, Any] = None, top_k: int = 10, offset: int = 0, rrf_k: int = 60) -> List[SearchResult]:
         """
         Performs a hybrid search using Qdrant for semantic + filtering, and in-memory BM25 for keyword.
+        Supports offset-based pagination.
         """
         if not self.qdrant.collection_exists(self.collection_name):
             logger.error("Search engine collection does not exist.")
             return []
 
         qdrant_filter = self._build_qdrant_filter(filters)
+        
+        # We need to fetch enough candidates to cover the offset + top_k
+        fetch_limit = top_k + offset
 
         if not query.strip():
             # Filter only
             scroll_res = self.qdrant.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=qdrant_filter,
+                offset=offset,
                 limit=top_k,
                 with_payload=True,
                 with_vectors=False
@@ -239,7 +274,7 @@ class SearchEngine:
             collection_name=self.collection_name,
             query=query_embedding.tolist(),
             query_filter=qdrant_filter,
-            limit=top_k * 2, # Fetch more for RRF
+            limit=fetch_limit * 2, # Fetch more for RRF
             with_payload=True
         ).points
         
@@ -250,7 +285,7 @@ class SearchEngine:
         bm25_ranks = {}
         bm25_scores = {}
         if self.bm25:
-            tokenized_query = query_lower.split()
+            tokenized_query = self._tokenize_for_bm25(query_lower)
             all_bm25_scores = self.bm25.get_scores(tokenized_query)
             
             sorted_indices = np.argsort(all_bm25_scores)[::-1]
@@ -288,16 +323,17 @@ class SearchEngine:
                 score += 1.0 / (rrf_k + bm25_ranks[point_id])
             rrf_scores[point_id] = score
             
-        # Sort by RRF
-        top_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)[:top_k]
+        # Sort by RRF and apply pagination offset and limit
+        sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
+        paginated_ids = sorted_ids[offset : offset + top_k]
         
         # 4. Fetch final payloads from Qdrant
-        if not top_ids:
+        if not paginated_ids:
             return []
             
         final_points = self.qdrant.retrieve(
             collection_name=self.collection_name,
-            ids=top_ids,
+            ids=paginated_ids,
             with_payload=True
         )
         
@@ -306,7 +342,7 @@ class SearchEngine:
         results = []
         valid_pairs = []
         
-        for point_id in top_ids:
+        for point_id in paginated_ids:
             if point_id not in points_map:
                 continue
             point = points_map[point_id]
