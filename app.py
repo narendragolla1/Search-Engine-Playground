@@ -4,7 +4,7 @@ import streamlit as st
 import pandas as pd
 
 from search_engine import SearchEngine
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -76,12 +76,19 @@ def load_nlp_model(model_name: str = "all-MiniLM-L6-v2"):
     logger.info(f"Loading SentenceTransformer model globally: {model_name}")
     return SentenceTransformer(model_name)
 
-# Ensure the model is loaded immediately when the server starts or script runs
+@st.cache_resource
+def load_reranker_model(model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
+    """Loads the highly accurate cross-encoder for Stage 2 re-ranking."""
+    logger.info(f"Loading CrossEncoder model globally: {model_name}")
+    return CrossEncoder(model_name)
+
+# Ensure the models are loaded immediately when the server starts or script runs
 nlp_model = load_nlp_model()
+reranker_model = load_reranker_model()
 
 # --- Session State Initialization ---
 if 'search_engine' not in st.session_state:
-    st.session_state.search_engine = SearchEngine(model=nlp_model)
+    st.session_state.search_engine = SearchEngine(model=nlp_model, reranker=reranker_model)
 if 'indexed_data' not in st.session_state:
     st.session_state.indexed_data = None
 if 'available_fields' not in st.session_state:

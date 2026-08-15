@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 
 import numpy as np
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 from sentence_transformers.util import cos_sim
 
 # Configure basic logging
@@ -24,14 +24,16 @@ class SearchEngine:
     A generic hybrid search engine combining keyword (BM25) and semantic (SentenceTransformers) search.
     """
 
-    def __init__(self, model: SentenceTransformer):
+    def __init__(self, model: SentenceTransformer, reranker: CrossEncoder = None):
         """
         Initializes the search engine.
         
         Args:
             model (SentenceTransformer): The pre-loaded SentenceTransformer model to use for semantic search.
+            reranker (CrossEncoder, optional): The cross-encoder model for Stage 2 re-ranking.
         """
         self.model = model
+        self.reranker = reranker
 
         self.data: List[Dict[str, Any]] = []
         self.corpus_text: List[str] = []
@@ -193,10 +195,14 @@ class SearchEngine:
 
         combined_scores[~mask] = -1.0
 
-        # 5. Rank and format results
-        top_indices = np.argsort(combined_scores)[::-1][:top_k]
+        # 5. Retrieve Top N Candidates (Stage 1)
+        # Fetch more candidates if we have a reranker to re-score
+        fetch_k = top_k * 5 if self.reranker else top_k
+        top_indices = np.argsort(combined_scores)[::-1][:fetch_k]
 
         results = []
+        valid_pairs = [] # For reranking
+        
         for idx in top_indices:
             if combined_scores[idx] > 0 and mask[idx]:
                 results.append(
@@ -207,5 +213,17 @@ class SearchEngine:
                         semantic_score=float(semantic_scores[idx])
                     )
                 )
+                valid_pairs.append((query_lower, self.corpus_text[idx]))
 
-        return results
+        # 6. Cross-Encoder Re-Ranking (Stage 2)
+        if self.reranker and valid_pairs and query.strip():
+            logger.info(f"Re-ranking {len(valid_pairs)} candidates...")
+            rerank_scores = self.reranker.predict(valid_pairs)
+            
+            for i, r in enumerate(results):
+                r.score = float(rerank_scores[i]) # Overwrite RRF score with Reranker score
+                
+            # Re-sort results by the new highly accurate score
+            results.sort(key=lambda x: x.score, reverse=True)
+
+        return results[:top_k]
