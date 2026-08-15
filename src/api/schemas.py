@@ -9,6 +9,14 @@ class IndexResponse(BaseModel):
     message: str
     items_indexed: int
 
+class UpdateDocumentRequest(BaseModel):
+    document_id: str
+    document: Dict[str, Any]
+    searchable_fields: List[str]
+
+class GenericResponse(BaseModel):
+    message: str
+
 class SearchRequest(BaseModel):
     query: str = Field(default="", description="The search query string")
     filters: Optional[Dict[str, Any]] = Field(default=None, description="Optional filters to apply before searching")

@@ -1,9 +1,10 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.concurrency import run_in_threadpool
 from contextlib import asynccontextmanager
 
-from src.api.schemas import IndexRequest, IndexResponse, SearchRequest, SearchResponse, SearchResultItem, ChatRequest
+from src.api.schemas import IndexRequest, IndexResponse, SearchRequest, SearchResponse, SearchResultItem, ChatRequest, UpdateDocumentRequest, GenericResponse
 from src.api.dependencies import init_search_engine, get_search_engine
 from src.core.search_engine import SearchEngine
 from src.api.llm_service import generate_chat_stream
@@ -27,9 +28,9 @@ app.add_middleware(
 )
 
 @app.post("/index", response_model=IndexResponse)
-def index_data(request: IndexRequest, engine: SearchEngine = Depends(get_search_engine)):
+async def index_data(request: IndexRequest, engine: SearchEngine = Depends(get_search_engine)):
     try:
-        engine.index(request.data, request.searchable_fields)
+        await run_in_threadpool(engine.index, request.data, request.searchable_fields)
         return IndexResponse(
             message="Successfully indexed data.",
             items_indexed=len(request.data)
@@ -37,10 +38,27 @@ def index_data(request: IndexRequest, engine: SearchEngine = Depends(get_search_
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/search", response_model=SearchResponse)
-def search(request: SearchRequest, engine: SearchEngine = Depends(get_search_engine)):
+@app.put("/document", response_model=GenericResponse)
+async def update_document(request: UpdateDocumentRequest, engine: SearchEngine = Depends(get_search_engine)):
     try:
-        results = engine.search(
+        await run_in_threadpool(engine.update_document, request.document_id, request.document, request.searchable_fields)
+        return GenericResponse(message=f"Successfully updated document {request.document_id}.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/document/{document_id}", response_model=GenericResponse)
+async def delete_document(document_id: str, engine: SearchEngine = Depends(get_search_engine)):
+    try:
+        await run_in_threadpool(engine.delete_document, document_id)
+        return GenericResponse(message=f"Successfully deleted document {document_id}.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/search", response_model=SearchResponse)
+async def search(request: SearchRequest, engine: SearchEngine = Depends(get_search_engine)):
+    try:
+        results = await run_in_threadpool(
+            engine.search,
             query=request.query,
             filters=request.filters,
             top_k=request.top_k

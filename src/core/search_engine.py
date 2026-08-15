@@ -1,11 +1,15 @@
 from loguru import logger
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
+import uuid
 
 import numpy as np
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from sentence_transformers.util import cos_sim
+
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
 
 @dataclass
 class SearchResult:
@@ -18,6 +22,7 @@ class SearchResult:
 class SearchEngine:
     """
     A generic hybrid search engine combining keyword (BM25) and semantic (SentenceTransformers) search.
+    Data and dense embeddings are stored in Qdrant.
     """
 
     def __init__(self, model: SentenceTransformer, reranker: CrossEncoder = None):
@@ -30,196 +35,297 @@ class SearchEngine:
         """
         self.model = model
         self.reranker = reranker
-
-        self.data: List[Dict[str, Any]] = []
-        self.corpus_text: List[str] = []
+        self.collection_name = "search_collection"
+        
+        # Initialize Qdrant Client (Using local memory/disk for now, can be swapped for Qdrant Cloud)
+        self.qdrant = QdrantClient(path="./qdrant_data")
+        
+        # We will keep BM25 in memory for Phase 1. It will be replaced by SPLADE in Qdrant in Phase 3.
         self.bm25: Optional[BM25Okapi] = None
-        self.embeddings: Optional[np.ndarray] = None
+        self.bm25_corpus_map: Dict[str, str] = {} # Map ID to text for BM25
+        
+        self._init_collection()
+
+    def _init_collection(self):
+        """Initializes the Qdrant collection if it doesn't exist."""
+        if not self.qdrant.collection_exists(self.collection_name):
+            vector_size = self.model.get_sentence_embedding_dimension()
+            self.qdrant.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=models.VectorParams(
+                    size=vector_size,
+                    distance=models.Distance.COSINE
+                )
+            )
+            logger.info(f"Created Qdrant collection '{self.collection_name}' with vector size {vector_size}.")
+
+    def _build_searchable_text(self, item: Dict[str, Any], searchable_fields: List[str]) -> str:
+        text_parts = []
+        for field in searchable_fields:
+            val = item.get(field)
+            if val:
+                text_parts.append(str(val))
+        return " ".join(text_parts).lower()
+
+    def _rebuild_bm25(self):
+        """Rebuilds the in-memory BM25 index from the current qdrant payloads. 
+        (Temporary solution until Phase 3 sparse vectors)."""
+        logger.info("Rebuilding in-memory BM25 index...")
+        scroll_res = self.qdrant.scroll(
+            collection_name=self.collection_name,
+            limit=10000,
+            with_payload=True,
+            with_vectors=False
+        )
+        points, _ = scroll_res
+        
+        self.bm25_corpus_map = {}
+        corpus_texts = []
+        
+        for point in points:
+            text = point.payload.get("_searchable_text", "")
+            self.bm25_corpus_map[point.id] = text
+            corpus_texts.append(text.split())
+            
+        if corpus_texts:
+            self.bm25 = BM25Okapi(corpus_texts)
+        else:
+            self.bm25 = None
+            
+        # Store a mapping of internal BM25 integer index to Qdrant point ID
+        self.bm25_id_map = list(self.bm25_corpus_map.keys())
+
+    def _parse_point_id(self, raw_id: Any) -> Any:
+        if raw_id is None:
+            return str(uuid.uuid4())
+        try:
+            return int(raw_id)
+        except ValueError:
+            try:
+                uuid.UUID(str(raw_id))
+                return str(raw_id)
+            except ValueError:
+                return str(uuid.uuid5(uuid.NAMESPACE_OID, str(raw_id)))
 
     def index(self, data: List[Dict[str, Any]], searchable_fields: List[str]) -> None:
         """
-        Indexes the provided data for both keyword and semantic search.
-
-        Args:
-            data (List[Dict[str, Any]]): The list of JSON-like objects to index.
-            searchable_fields (List[str]): The keys in the dictionaries to use for searching.
+        Indexes the provided data by inserting it into Qdrant.
         """
         if not data:
             logger.warning("Attempted to index empty data.")
             return
 
-        self.data = data
-        self.corpus_text = []
-
-        # Prepare the text corpus by concatenating searchable fields
-        for item in self.data:
-            text_parts = []
-            for field in searchable_fields:
-                val = item.get(field)
-                if val:
-                    text_parts.append(str(val))
-            combined_text = " ".join(text_parts).lower()
-            self.corpus_text.append(combined_text)
-
-        if not self.corpus_text:
-            logger.warning("No searchable text found in the provided fields.")
-            return
-
-        # 1. Build Keyword Index (BM25)
-        logger.info("Building BM25 keyword index...")
-        tokenized_corpus = [doc.split() for doc in self.corpus_text]
-        self.bm25 = BM25Okapi(tokenized_corpus)
-
-        # 2. Build Semantic Index (Embeddings)
-        logger.info("Generating semantic embeddings... This may take a while depending on data size.")
-        self.embeddings = self.model.encode(self.corpus_text, convert_to_numpy=True)
+        logger.info(f"Indexing {len(data)} items into Qdrant...")
         
-        logger.info(f"Successfully indexed {len(self.data)} items.")
+        points = []
+        texts_to_embed = []
+        
+        for item in data:
+            point_id = self._parse_point_id(item.get("id"))
+                
+            combined_text = self._build_searchable_text(item, searchable_fields)
+            texts_to_embed.append(combined_text)
+            
+            # Store the searchable text in the payload for BM25 and Reranker
+            payload = item.copy()
+            payload["_searchable_text"] = combined_text
+            payload["_searchable_fields"] = searchable_fields
+            
+            points.append(
+                models.PointStruct(
+                    id=point_id,
+                    vector=[], # Will fill next
+                    payload=payload
+                )
+            )
 
-    def _passes_filters(self, item: Dict[str, Any], filters: Dict[str, Any]) -> bool:
-        """Helper to check if an item satisfies all filters."""
+        # Generate dense embeddings
+        logger.info("Generating dense embeddings...")
+        embeddings = self.model.encode(texts_to_embed, convert_to_numpy=True)
+        
+        for i, point in enumerate(points):
+            point.vector = embeddings[i].tolist()
+            
+        # Upsert to Qdrant
+        self.qdrant.upsert(
+            collection_name=self.collection_name,
+            points=points
+        )
+        
+        self._rebuild_bm25()
+        logger.info(f"Successfully indexed {len(points)} items.")
+
+    def add_documents(self, documents: List[Dict[str, Any]], searchable_fields: List[str]):
+        """Adds new documents to the index."""
+        self.index(documents, searchable_fields)
+        
+    def update_document(self, document_id: str, document: Dict[str, Any], searchable_fields: List[str]):
+        """Updates an existing document."""
+        doc = document.copy()
+        doc["id"] = document_id
+        self.index([doc], searchable_fields)
+
+    def delete_document(self, document_id: str):
+        """Deletes a document from the index by ID."""
+        self.qdrant.delete(
+            collection_name=self.collection_name,
+            points_selector=models.PointIdsList(
+                points=[self._parse_point_id(document_id)],
+            ),
+        )
+        self._rebuild_bm25()
+
+    def _build_qdrant_filter(self, filters: Dict[str, Any]) -> Optional[models.Filter]:
+        """Converts user filters into Qdrant Filter models."""
         if not filters:
-            return True
+            return None
             
+        must_conditions = []
         for field, filter_val in filters.items():
-            item_val = item.get(field)
-            if item_val is None:
-                return False
-                
-            # Range filter (Numeric)
             if isinstance(filter_val, dict) and 'min' in filter_val and 'max' in filter_val:
-                try:
-                    # Attempt to parse as float (handle strings like "9.3" or "2,559")
-                    numeric_val = float(str(item_val).replace(',', ''))
-                    if not (filter_val['min'] <= numeric_val <= filter_val['max']):
-                        return False
-                except ValueError:
-                    return False
-            
-            # Array filter (Categorical)
-            elif isinstance(filter_val, list):
-                if not filter_val:
-                    continue # Empty selection means no restriction
-                
-                if isinstance(item_val, str):
-                    # Check if string contains any of the selected categories
-                    match = any(cat.lower() in item_val.lower() for cat in filter_val)
-                    if not match:
-                        return False
-                elif isinstance(item_val, list):
-                    match = any(cat in item_val for cat in filter_val)
-                    if not match:
-                        return False
-                else:
-                    if item_val not in filter_val:
-                        return False
-        return True
+                must_conditions.append(
+                    models.FieldCondition(
+                        key=field,
+                        range=models.Range(
+                            gte=filter_val['min'],
+                            lte=filter_val['max']
+                        )
+                    )
+                )
+            elif isinstance(filter_val, list) and filter_val:
+                must_conditions.append(
+                    models.FieldCondition(
+                        key=field,
+                        match=models.MatchAny(any=filter_val)
+                    )
+                )
+        
+        if must_conditions:
+            return models.Filter(must=must_conditions)
+        return None
 
     def search(self, query: str, filters: Dict[str, Any] = None, top_k: int = 10, rrf_k: int = 60) -> List[SearchResult]:
         """
-        Performs a hybrid search with optional pre-filtering, using Reciprocal Rank Fusion (RRF).
-
-        Args:
-            query (str): The search query.
-            filters (Dict[str, Any]): Filters to apply. Example: {"Rating": {"min": 8, "max": 10}, "Genre": ["Action"]}
-            top_k (int): The maximum number of results to return.
-            rrf_k (int): The k constant used in the RRF formula (typically 60).
-
-        Returns:
-            List[SearchResult]: The top k search results sorted by the combined RRF score.
+        Performs a hybrid search using Qdrant for semantic + filtering, and in-memory BM25 for keyword.
         """
-        if not self.data or self.bm25 is None or self.embeddings is None:
-            logger.error("Search engine is not indexed. Call `index()` first.")
+        if not self.qdrant.collection_exists(self.collection_name):
+            logger.error("Search engine collection does not exist.")
             return []
 
-        filters = filters or {}
-        
-        # 1. Pre-filter items
-        valid_indices = []
-        for i, item in enumerate(self.data):
-            if self._passes_filters(item, filters):
-                valid_indices.append(i)
-                
-        if not valid_indices:
-            return []
+        qdrant_filter = self._build_qdrant_filter(filters)
 
         if not query.strip():
-            # If no text query, just return the filtered items
-            results = []
-            for idx in valid_indices[:top_k]:
-                results.append(
-                    SearchResult(
-                        item=self.data[idx],
-                        score=1.0,
-                        keyword_score=0.0,
-                        semantic_score=0.0
-                    )
-                )
-            return results
+            # Filter only
+            scroll_res = self.qdrant.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=qdrant_filter,
+                limit=top_k,
+                with_payload=True,
+                with_vectors=False
+            )
+            points, _ = scroll_res
+            return [
+                SearchResult(
+                    item={k:v for k,v in p.payload.items() if not k.startswith('_')},
+                    score=1.0, keyword_score=0.0, semantic_score=0.0
+                ) for p in points
+            ]
 
         query_lower = query.lower()
-
-        # Mask out items that didn't pass the filters
-        mask = np.zeros(len(self.data), dtype=bool)
-        mask[valid_indices] = True
-
-        # 2. Keyword Scores
-        tokenized_query = query_lower.split()
-        bm25_scores = self.bm25.get_scores(tokenized_query)
-        bm25_scores[~mask] = -float('inf')
-        bm25_ranks = {idx: rank + 1 for rank, idx in enumerate(np.argsort(bm25_scores)[::-1])}
-
-        # 3. Semantic Scores
-        query_embedding = self.model.encode(query_lower, convert_to_numpy=True)
-        semantic_scores = cos_sim(query_embedding, self.embeddings)[0].numpy()
-        semantic_scores[~mask] = -float('inf')
-        semantic_ranks = {idx: rank + 1 for rank, idx in enumerate(np.argsort(semantic_scores)[::-1])}
-
-        # 4. RRF (Reciprocal Rank Fusion) Scoring
-        combined_scores = np.zeros(len(self.data))
-        for idx in valid_indices:
-            rrf_score = 0.0
-            
-            # Add Keyword RRF (only if the document actually contained the keywords)
-            if bm25_scores[idx] > 0:
-                rrf_score += 1.0 / (rrf_k + bm25_ranks[idx])
-                
-            # Add Semantic RRF
-            rrf_score += 1.0 / (rrf_k + semantic_ranks[idx])
-            
-            combined_scores[idx] = rrf_score
-
-        combined_scores[~mask] = -1.0
-
-        # 5. Retrieve Top N Candidates (Stage 1)
-        # Fetch more candidates if we have a reranker to re-score
-        fetch_k = top_k * 5 if self.reranker else top_k
-        top_indices = np.argsort(combined_scores)[::-1][:fetch_k]
-
-        results = []
-        valid_pairs = [] # For reranking
         
-        for idx in top_indices:
-            if combined_scores[idx] > 0 and mask[idx]:
-                results.append(
-                    SearchResult(
-                        item=self.data[idx],
-                        score=float(combined_scores[idx]),
-                        keyword_score=float(bm25_scores[idx]),
-                        semantic_score=float(semantic_scores[idx])
-                    )
-                )
-                valid_pairs.append((query_lower, self.corpus_text[idx]))
+        # 1. Semantic Search (Qdrant)
+        query_embedding = self.model.encode(query_lower, convert_to_numpy=True)
+        semantic_results = self.qdrant.query_points(
+            collection_name=self.collection_name,
+            query=query_embedding.tolist(),
+            query_filter=qdrant_filter,
+            limit=top_k * 2, # Fetch more for RRF
+            with_payload=True
+        ).points
+        
+        semantic_ranks = {res.id: rank + 1 for rank, res in enumerate(semantic_results)}
+        semantic_scores = {res.id: res.score for res in semantic_results}
 
-        # 6. Cross-Encoder Re-Ranking (Stage 2)
-        if self.reranker and valid_pairs and query.strip():
-            logger.info(f"Re-ranking {len(valid_pairs)} candidates...")
-            rerank_scores = self.reranker.predict(valid_pairs)
+        # 2. Keyword Search (BM25)
+        bm25_ranks = {}
+        bm25_scores = {}
+        if self.bm25:
+            tokenized_query = query_lower.split()
+            all_bm25_scores = self.bm25.get_scores(tokenized_query)
             
-            for i, r in enumerate(results):
-                r.score = float(rerank_scores[i]) # Overwrite RRF score with Reranker score
+            sorted_indices = np.argsort(all_bm25_scores)[::-1]
+            
+            valid_qdrant_ids = set()
+            if qdrant_filter:
+                scroll_res = self.qdrant.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=qdrant_filter,
+                    limit=10000,
+                    with_payload=False
+                )
+                valid_qdrant_ids = {p.id for p in scroll_res[0]}
+            else:
+                valid_qdrant_ids = set(self.bm25_id_map)
                 
-            # Re-sort results by the new highly accurate score
+            current_rank = 1
+            for idx in sorted_indices:
+                point_id = self.bm25_id_map[idx]
+                score = all_bm25_scores[idx]
+                if score > 0 and point_id in valid_qdrant_ids:
+                    bm25_ranks[point_id] = current_rank
+                    bm25_scores[point_id] = score
+                    current_rank += 1
+
+        # 3. RRF Scoring
+        all_candidate_ids = set(semantic_ranks.keys()).union(set(bm25_ranks.keys()))
+        rrf_scores = {}
+        
+        for point_id in all_candidate_ids:
+            score = 0.0
+            if point_id in semantic_ranks:
+                score += 1.0 / (rrf_k + semantic_ranks[point_id])
+            if point_id in bm25_ranks:
+                score += 1.0 / (rrf_k + bm25_ranks[point_id])
+            rrf_scores[point_id] = score
+            
+        # Sort by RRF
+        top_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)[:top_k]
+        
+        # 4. Fetch final payloads from Qdrant
+        if not top_ids:
+            return []
+            
+        final_points = self.qdrant.retrieve(
+            collection_name=self.collection_name,
+            ids=top_ids,
+            with_payload=True
+        )
+        
+        points_map = {p.id: p for p in final_points}
+        
+        results = []
+        valid_pairs = []
+        
+        for point_id in top_ids:
+            if point_id not in points_map:
+                continue
+            point = points_map[point_id]
+            clean_item = {k:v for k,v in point.payload.items() if not k.startswith('_')}
+            results.append(
+                SearchResult(
+                    item=clean_item,
+                    score=rrf_scores[point_id],
+                    keyword_score=bm25_scores.get(point_id, 0.0),
+                    semantic_score=semantic_scores.get(point_id, 0.0)
+                )
+            )
+            valid_pairs.append((query_lower, point.payload.get("_searchable_text", "")))
+
+        # 5. Cross-Encoder Re-Ranking (Stage 2)
+        if self.reranker and valid_pairs and query.strip():
+            rerank_scores = self.reranker.predict(valid_pairs)
+            for i, r in enumerate(results):
+                r.score = float(rerank_scores[i])
             results.sort(key=lambda x: x.score, reverse=True)
 
-        return results[:top_k]
+        return results
