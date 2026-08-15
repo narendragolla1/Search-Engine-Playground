@@ -154,15 +154,6 @@ with st.sidebar:
     st.divider()
     st.header("3. Hyperparameters")
     
-    alpha = st.slider(
-        "Hybrid Weight (α)",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.5,
-        step=0.1,
-        help="0.0 = Semantic Search Only\n1.0 = Keyword Search Only\n0.5 = Equal Weight"
-    )
-    
     top_k = st.number_input(
         "Number of Results (Top K)",
         min_value=1,
@@ -205,7 +196,7 @@ if st.session_state.indexed_data is not None:
 
     if query or active_filters:
         with st.spinner("Searching..."):
-            results = st.session_state.search_engine.search(query, filters=active_filters, alpha=alpha, top_k=top_k)
+            results = st.session_state.search_engine.search(query, filters=active_filters, top_k=top_k)
         
         if not results:
             st.info("No results found.")

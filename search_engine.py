@@ -117,19 +117,18 @@ class SearchEngine:
                         return False
         return True
 
-    def search(self, query: str, filters: Dict[str, Any] = None, alpha: float = 0.5, top_k: int = 10) -> List[SearchResult]:
+    def search(self, query: str, filters: Dict[str, Any] = None, top_k: int = 10, rrf_k: int = 60) -> List[SearchResult]:
         """
-        Performs a hybrid search with optional pre-filtering.
+        Performs a hybrid search with optional pre-filtering, using Reciprocal Rank Fusion (RRF).
 
         Args:
             query (str): The search query.
             filters (Dict[str, Any]): Filters to apply. Example: {"Rating": {"min": 8, "max": 10}, "Genre": ["Action"]}
-            alpha (float): The weight of the keyword score (0.0 to 1.0). 
-                           0.0 means semantic only, 1.0 means keyword only.
             top_k (int): The maximum number of results to return.
+            rrf_k (int): The k constant used in the RRF formula (typically 60).
 
         Returns:
-            List[SearchResult]: The top k search results sorted by the combined score.
+            List[SearchResult]: The top k search results sorted by the combined RRF score.
         """
         if not self.data or self.bm25 is None or self.embeddings is None:
             logger.error("Search engine is not indexed. Call `index()` first.")
@@ -162,25 +161,36 @@ class SearchEngine:
 
         query_lower = query.lower()
 
+        # Mask out items that didn't pass the filters
+        mask = np.zeros(len(self.data), dtype=bool)
+        mask[valid_indices] = True
+
         # 2. Keyword Scores
         tokenized_query = query_lower.split()
         bm25_scores = self.bm25.get_scores(tokenized_query)
-        
-        # Normalize BM25 scores to [0, 1] for fair comparison with cosine similarity
-        if np.max(bm25_scores) > 0:
-            bm25_scores = bm25_scores / np.max(bm25_scores)
+        bm25_scores[~mask] = -float('inf')
+        bm25_ranks = {idx: rank + 1 for rank, idx in enumerate(np.argsort(bm25_scores)[::-1])}
 
         # 3. Semantic Scores
         query_embedding = self.model.encode(query_lower, convert_to_numpy=True)
         semantic_scores = cos_sim(query_embedding, self.embeddings)[0].numpy()
-        semantic_scores = np.clip(semantic_scores, 0, 1)
+        semantic_scores[~mask] = -float('inf')
+        semantic_ranks = {idx: rank + 1 for rank, idx in enumerate(np.argsort(semantic_scores)[::-1])}
 
-        # 4. Hybrid Scoring
-        combined_scores = (alpha * bm25_scores) + ((1.0 - alpha) * semantic_scores)
+        # 4. RRF (Reciprocal Rank Fusion) Scoring
+        combined_scores = np.zeros(len(self.data))
+        for idx in valid_indices:
+            rrf_score = 0.0
+            
+            # Add Keyword RRF (only if the document actually contained the keywords)
+            if bm25_scores[idx] > 0:
+                rrf_score += 1.0 / (rrf_k + bm25_ranks[idx])
+                
+            # Add Semantic RRF
+            rrf_score += 1.0 / (rrf_k + semantic_ranks[idx])
+            
+            combined_scores[idx] = rrf_score
 
-        # Mask out items that didn't pass the filters
-        mask = np.zeros(len(self.data), dtype=bool)
-        mask[valid_indices] = True
         combined_scores[~mask] = -1.0
 
         # 5. Rank and format results
@@ -188,7 +198,6 @@ class SearchEngine:
 
         results = []
         for idx in top_indices:
-            # Only include results with a score > 0 and that passed the filter mask
             if combined_scores[idx] > 0 and mask[idx]:
                 results.append(
                     SearchResult(
