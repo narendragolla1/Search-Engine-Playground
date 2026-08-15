@@ -1,0 +1,72 @@
+[
+    {
+        "id": "1",
+        "name": "Organic Honeycrisp Apples",
+        "category": "Produce",
+        "description": "Sweet, crisp, and juicy organic apples. Perfect for snacking or baking.",
+        "price": 4.99
+    },
+    {
+        "id": "2",
+        "name": "Whole Milk, 1 Gallon",
+        "category": "Dairy",
+        "description": "Fresh whole milk from local dairy farms. Rich in calcium and Vitamin D.",
+        "price": 3.49
+    },
+    {
+        "id": "3",
+        "name": "Almond Milk, Unsweetened Vanilla",
+        "category": "Dairy Alternatives",
+        "description": "Plant-based milk alternative made from real almonds. No added sugar.",
+        "price": 2.99
+    },
+    {
+        "id": "4",
+        "name": "Sourdough Bread Loaf",
+        "category": "Bakery",
+        "description": "Artisan sourdough bread baked fresh daily. Great for sandwiches and toast.",
+        "price": 5.50
+    },
+    {
+        "id": "5",
+        "name": "Free Range Large Brown Eggs",
+        "category": "Dairy",
+        "description": "One dozen large brown eggs from free-ranging hens.",
+        "price": 4.29
+    },
+    {
+        "id": "6",
+        "name": "Ground Beef, 80% Lean",
+        "category": "Meat",
+        "description": "Freshly ground beef, perfect for burgers, tacos, and meat sauce.",
+        "price": 6.99
+    },
+    {
+        "id": "7",
+        "name": "Beyond Burger Plant-Based Patties",
+        "category": "Meat Alternatives",
+        "description": "Plant-based burger patties that look, cook, and satisfy like beef.",
+        "price": 5.99
+    },
+    {
+        "id": "8",
+        "name": "Organic Baby Spinach",
+        "category": "Produce",
+        "description": "Pre-washed organic baby spinach leaves. Excellent for salads or cooking.",
+        "price": 3.99
+    },
+    {
+        "id": "9",
+        "name": "Creamy Peanut Butter",
+        "category": "Pantry",
+        "description": "Smooth and creamy peanut butter made with roasted peanuts.",
+        "price": 2.79
+    },
+    {
+        "id": "10",
+        "name": "Fair Trade Dark Chocolate Bar",
+        "category": "Snacks",
+        "description": "72% cacao dark chocolate bar. Ethically sourced and delicious.",
+        "price": 3.50
+    }
+]
