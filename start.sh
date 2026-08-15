@@ -22,7 +22,7 @@ echo "✅ Backend is up and running!"
 
 echo "Starting Streamlit Frontend..."
 # Start the frontend
-uv run streamlit run src/frontend/app.py &
+PYTHONPATH=. uv run streamlit run src/frontend/app.py &
 FRONTEND_PID=$!
 
 echo "=========================================="
