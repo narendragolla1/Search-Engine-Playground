@@ -236,90 +236,62 @@ with st.sidebar:
 
 # --- Main UI Area ---
 if st.session_state.indexed_data is not None:
-    tab1, tab2 = st.tabs(["🔍 Standard Search", "🤖 AI Assistant (RAG)"])
+    st.subheader("Unified Search")
     
-    with tab1:
-        query = st.text_input("Enter your search query...", placeholder="e.g., 'fresh organic apples'")
+    # Toggle for AI Overview
+    enable_ai = st.toggle("Enable ✨ AI Overview (RAG)", value=True)
     
-        if query or active_filters:
-            with st.spinner("Searching..."):
-                try:
-                    payload = {
-                        "query": query,
-                        "filters": active_filters if active_filters else None,
-                        "top_k": top_k
-                    }
-                    response = requests.post(f"{API_URL}/search", json=payload)
-                    response.raise_for_status()
-                    results = response.json().get("results", [])
-                    
-                    if not results:
-                        st.info("No results found.")
-                    else:
-                        st.success(f"Found {len(results)} results")
-                        for i, res in enumerate(results):
-                            render_result_card(res['item'], res['score'], i + 1)
-                except Exception as e:
-                    st.error(f"Search API failed: {e}")
-
-    with tab2:
-        st.markdown("### Chat with your Catalog")
-        st.caption("Powered by Groq and openai/gpt-oss-120b. The AI retrieves context from your active index dynamically.")
-        
-        # Display chat messages
-        for msg in st.session_state.chat_history:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-                
-        # Chat input
-        if chat_query := st.chat_input("Ask a question about the products..."):
-            # Append user message
-            st.session_state.chat_history.append({"role": "user", "content": chat_query})
-            with st.chat_message("user"):
-                st.markdown(chat_query)
-                
-            with st.chat_message("assistant"):
-                # 1. Retrieve context silently
-                with st.status("Retrieving context from catalog...", expanded=False) as status:
-                    search_payload = {
-                        "query": chat_query,
-                        "filters": active_filters if active_filters else None,
-                        "top_k": top_k
-                    }
-                    try:
-                        resp = requests.post(f"{API_URL}/search", json=search_payload)
-                        resp.raise_for_status()
-                        results = resp.json().get("results", [])
-                        context_items = [r['item'] for r in results]
-                        status.update(label=f"Retrieved {len(context_items)} items for context.", state="complete", expanded=False)
-                        
-                        # Render the top 3 cards quickly so user sees what the AI is talking about
-                        if results:
-                            st.markdown("**Referenced Items:**")
-                            for i, res in enumerate(results[:3]):
-                                render_result_card(res['item'], res['score'], i + 1)
-                    except Exception as e:
-                        st.error(f"Context retrieval failed: {e}")
-                        context_items = []
-                
-                # 2. Stream AI response
-                chat_payload = {
-                    "messages": st.session_state.chat_history,
-                    "context": context_items
+    query = st.text_input("Enter your search query...", placeholder="e.g., 'An American classic mafia film'")
+    
+    if query or active_filters:
+        with st.spinner("Searching..."):
+            try:
+                # 1. Fetch Search Results
+                payload = {
+                    "query": query if query else "",
+                    "filters": active_filters if active_filters else None,
+                    "top_k": top_k
                 }
+                response = requests.post(f"{API_URL}/search", json=payload)
+                response.raise_for_status()
+                results = response.json().get("results", [])
                 
-                def stream_chat():
-                    with requests.post(f"{API_URL}/chat", json=chat_payload, stream=True) as r:
-                        r.raise_for_status()
-                        for chunk in r.iter_content(chunk_size=None, decode_unicode=True):
-                            if chunk:
-                                yield chunk
-                                
-                try:
-                    full_response = st.write_stream(stream_chat())
-                    st.session_state.chat_history.append({"role": "assistant", "content": full_response})
-                except Exception as e:
-                    st.error(f"Chat API failed: {e}")
+                if not results:
+                    st.info("No results found.")
+                else:
+                    # 2. If AI Overview is enabled, stream the RAG response
+                    if enable_ai and query:
+                        st.markdown("### ✨ AI Overview")
+                        context_items = [r['item'] for r in results]
+                        
+                        # Use a single turn message for the unified search bar overview
+                        chat_payload = {
+                            "messages": [{"role": "user", "content": query}],
+                            "context": context_items
+                        }
+                        
+                        def stream_chat():
+                            with requests.post(f"{API_URL}/chat", json=chat_payload, stream=True) as r:
+                                r.raise_for_status()
+                                for chunk in r.iter_content(chunk_size=None, decode_unicode=True):
+                                    if chunk:
+                                        yield chunk
+                                        
+                        try:
+                            # Stream the response into a container
+                            with st.container(border=True):
+                                st.write_stream(stream_chat())
+                        except Exception as e:
+                            st.error(f"AI Overview failed: {e}")
+                            
+                        st.divider()
+
+                    # 3. Display Standard Results
+                    st.markdown(f"**Found {len(results)} results**")
+                    for i, res in enumerate(results):
+                        render_result_card(res['item'], res['score'], i + 1)
+            except Exception as e:
+                st.error(f"Search API failed: {e}")
 
 else:
     st.info("👈 Please upload a JSON file and build the index to start searching.")
