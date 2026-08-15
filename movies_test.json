@@ -1,0 +1,214 @@
+{
+  "movies": [
+    {
+      "Title": "The Shawshank Redemption",
+      "Year": "1994",
+      "Rated": "R",
+      "Released": "14 Oct 1994",
+      "Runtime": "142 min",
+      "Genre": "Drama",
+      "Director": "Frank Darabont",
+      "Writer": "Stephen King, Frank Darabont",
+      "Actors": "Tim Robbins, Morgan Freeman, Bob Gunton",
+      "Plot": "Two imprisoned men bond over a number of years, finding solace and eventual redemption through acts of common decency.",
+      "Language": "English",
+      "Country": "United States",
+      "Awards": "Nominated for 7 Oscars. 21 wins & 43 nominations total",
+      "Poster": "https://m.media-amazon.com/images/M/MV5BMDFkYTc0MGEtZmNhMC00ZDIzLWFmNTEtODM1ZmRlYWMwMWFmXkEyXkFqcGdeQXVyMTMxODk2OTU@._V1_SX300.jpg",
+      "Ratings": [
+        {
+          "Source": "Internet Movie Database",
+          "Value": "9.3/10"
+        }
+      ],
+      "Metascore": "81",
+      "imdbRating": "9.3",
+      "imdbVotes": "2,559,562",
+      "imdbID": "tt0111161",
+      "Type": "movie",
+      "DVD": "21 Dec 1999",
+      "BoxOffice": "$28,767,189",
+      "Production": "N/A",
+      "Website": "N/A",
+      "Response": "True"
+    },
+    {
+      "Title": "The Godfather",
+      "Year": "1972",
+      "Rated": "R",
+      "Released": "24 Mar 1972",
+      "Runtime": "175 min",
+      "Genre": "Crime, Drama",
+      "Director": "Francis Ford Coppola",
+      "Writer": "Mario Puzo, Francis Ford Coppola",
+      "Actors": "Marlon Brando, Al Pacino, James Caan",
+      "Plot": "The aging patriarch of an organized crime dynasty in postwar New York City transfers control of his clandestine empire to his reluctant youngest son.",
+      "Language": "English, Italian, Latin",
+      "Country": "United States",
+      "Awards": "Won 3 Oscars. 31 wins & 30 nominations total",
+      "imdbRating": "9.2"
+    },
+    {
+      "Title": "The Dark Knight",
+      "Year": "2008",
+      "Genre": "Action, Crime, Drama",
+      "imdbRating": "9.1"
+    },
+    {
+      "Title": "The Godfather: Part II",
+      "Year": "1974",
+      "Genre": "Crime, Drama",
+      "imdbRating": "9.0"
+    },
+    {
+      "Title": "12 Angry Men",
+      "Year": "1957",
+      "Genre": "Crime, Drama",
+      "imdbRating": "9.0"
+    },
+    {
+      "Title": "Schindler's List",
+      "Year": "1993",
+      "Genre": "Biography, Drama, History",
+      "imdbRating": "8.9"
+    },
+    {
+      "Title": "Pulp Fiction",
+      "Year": "1994",
+      "Genre": "Crime, Drama",
+      "imdbRating": "8.9"
+    },
+    {
+      "Title": "The Lord of the Rings: The Fellowship of the Ring",
+      "Year": "2001",
+      "Genre": "Action, Adventure, Drama",
+      "imdbRating": "8.8"
+    },
+    {
+      "Title": "Fight Club",
+      "Year": "1999",
+      "Genre": "Drama",
+      "imdbRating": "8.8"
+    },
+    {
+      "Title": "Forrest Gump",
+      "Year": "1994",
+      "Genre": "Drama, Romance",
+      "imdbRating": "8.8"
+    },
+    {
+      "Title": "Inception",
+      "Year": "2010",
+      "Genre": "Action, Adventure, Sci-Fi",
+      "imdbRating": "8.8"
+    },
+    {
+      "Title": "Star Wars: Episode V - The Empire Strikes Back",
+      "Year": "1980",
+      "Genre": "Action, Adventure, Fantasy",
+      "imdbRating": "8.7"
+    },
+    {
+      "Title": "The Matrix",
+      "Year": "1999",
+      "Genre": "Action, Sci-Fi",
+      "imdbRating": "8.7"
+    },
+    {
+      "Title": "Goodfellas",
+      "Year": "1990",
+      "Genre": "Biography, Crime, Drama",
+      "imdbRating": "8.7"
+    },
+    {
+      "Title": "Se7en",
+      "Year": "1995",
+      "Genre": "Crime, Drama, Mystery",
+      "imdbRating": "8.6"
+    },
+    {
+      "Title": "City of God",
+      "Year": "2002",
+      "Genre": "Crime, Drama",
+      "imdbRating": "8.6"
+    },
+    {
+      "Title": "The Silence of the Lambs",
+      "Year": "1991",
+      "Genre": "Crime, Drama, Thriller",
+      "imdbRating": "8.6"
+    },
+    {
+      "Title": "It's a Wonderful Life",
+      "Year": "1946",
+      "Genre": "Drama, Family, Fantasy",
+      "imdbRating": "8.7"
+    },
+    {
+      "Title": "Life Is Beautiful",
+      "Year": "1997",
+      "Genre": "Comedy, Drama, Romance",
+      "imdbRating": "8.6"
+    },
+    {
+      "Title": "The Usual Suspects",
+      "Year": "1995",
+      "Genre": "Crime, Drama, Mystery",
+      "imdbRating": "8.5"
+    },
+    {
+      "Title": "Spirited Away",
+      "Year": "2001",
+      "Genre": "Animation, Adventure, Family",
+      "imdbRating": "8.6"
+    },
+    {
+      "Title": "Parasite",
+      "Year": "2019",
+      "Genre": "Comedy, Drama, Thriller",
+      "imdbRating": "8.5"
+    },
+    {
+      "Title": "Gladiator",
+      "Year": "2000",
+      "Genre": "Action, Adventure, Drama",
+      "imdbRating": "8.5"
+    },
+    {
+      "Title": "The Lion King",
+      "Year": "1994",
+      "Genre": "Animation, Adventure, Drama",
+      "imdbRating": "8.5"
+    },
+    {
+      "Title": "The Prestige",
+      "Year": "2006",
+      "Genre": "Drama, Mystery, Thriller",
+      "imdbRating": "8.5"
+    },
+    {
+      "Title": "Memento",
+      "Year": "2000",
+      "Genre": "Mystery, Thriller",
+      "imdbRating": "8.5"
+    },
+    {
+      "Title": "Apocalypse Now",
+      "Year": "1979",
+      "Genre": "Drama, Mystery, War",
+      "imdbRating": "8.5"
+    },
+    {
+      "Title": "Alien",
+      "Year": "1979",
+      "Genre": "Horror, Sci-Fi",
+      "imdbRating": "8.5"
+    },
+    {
+      "Title": "Sunset Blvd.",
+      "Year": "1950",
+      "Genre": "Drama, Film-Noir",
+      "imdbRating": "8.4"
+    }
+  ]
+}

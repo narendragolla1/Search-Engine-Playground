@@ -10,6 +10,52 @@ from sentence_transformers import SentenceTransformer
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# --- Helper Functions ---
+def infer_field_types(data):
+    numeric_fields = {} # field -> {'min': float, 'max': float}
+    categorical_fields = {} # field -> set of unique values
+    
+    for item in data[:200]: # analyze up to 200 items
+        if not isinstance(item, dict): continue
+        for k, v in item.items():
+            if v is None or v == "N/A": continue
+            
+            if isinstance(v, (int, float)):
+                if k not in numeric_fields:
+                    numeric_fields[k] = {'min': float(v), 'max': float(v)}
+                else:
+                    numeric_fields[k]['min'] = min(numeric_fields[k]['min'], float(v))
+                    numeric_fields[k]['max'] = max(numeric_fields[k]['max'], float(v))
+            elif isinstance(v, str):
+                try:
+                    # attempt to parse as float (removing commas and checking)
+                    float_val = float(v.replace(',', ''))
+                    if k not in numeric_fields:
+                        numeric_fields[k] = {'min': float_val, 'max': float_val}
+                    else:
+                        numeric_fields[k]['min'] = min(numeric_fields[k]['min'], float_val)
+                        numeric_fields[k]['max'] = max(numeric_fields[k]['max'], float_val)
+                except ValueError:
+                    # It's a string category
+                    if k not in categorical_fields:
+                        categorical_fields[k] = set()
+                    
+                    if ',' in v:
+                        parts = [p.strip() for p in v.split(',')]
+                        categorical_fields[k].update(parts)
+                    else:
+                        categorical_fields[k].add(v)
+            elif isinstance(v, list):
+                if k not in categorical_fields:
+                    categorical_fields[k] = set()
+                for cat in v:
+                    if isinstance(cat, str):
+                        categorical_fields[k].add(cat)
+                        
+    # Filter categories to only those with < 50 unique values (ignore descriptions)
+    valid_categorical = {k: sorted(list(v)) for k, v in categorical_fields.items() if 0 < len(v) < 50}
+    return numeric_fields, valid_categorical
+
 # --- Configuration & Setup ---
 st.set_page_config(
     page_title="Search Engine Playground",
@@ -40,6 +86,10 @@ if 'indexed_data' not in st.session_state:
     st.session_state.indexed_data = None
 if 'available_fields' not in st.session_state:
     st.session_state.available_fields = []
+if 'numeric_fields' not in st.session_state:
+    st.session_state.numeric_fields = {}
+if 'categorical_fields' not in st.session_state:
+    st.session_state.categorical_fields = {}
 
 # --- Sidebar UI ---
 with st.sidebar:
@@ -75,6 +125,11 @@ with st.sidebar:
                         if isinstance(item, dict):
                             keys.update(item.keys())
                     st.session_state.available_fields = sorted(list(keys))
+                    
+                    # Infer types for filtering
+                    num_f, cat_f = infer_field_types(data)
+                    st.session_state.numeric_fields = num_f
+                    st.session_state.categorical_fields = cat_f
 
                 # Field Selection
                 st.header("2. Configure Index")
@@ -116,13 +171,41 @@ with st.sidebar:
         step=1
     )
 
+    st.divider()
+    st.header("4. Dynamic Filters")
+    active_filters = {}
+    
+    if st.session_state.indexed_data is not None:
+        if st.session_state.numeric_fields:
+            st.subheader("Numeric")
+            for field, bounds in st.session_state.numeric_fields.items():
+                if bounds['min'] < bounds['max']: # only show slider if there's a range
+                    # Format as float for precision, but if bounds are large, step could be 0.1
+                    selected_range = st.slider(
+                        field,
+                        min_value=float(bounds['min']),
+                        max_value=float(bounds['max']),
+                        value=(float(bounds['min']), float(bounds['max']))
+                    )
+                    if selected_range[0] > bounds['min'] or selected_range[1] < bounds['max']:
+                        active_filters[field] = {'min': selected_range[0], 'max': selected_range[1]}
+
+        if st.session_state.categorical_fields:
+            st.subheader("Categories")
+            for field, options in st.session_state.categorical_fields.items():
+                selected_cats = st.multiselect(f"{field}", options)
+                if selected_cats:
+                    active_filters[field] = selected_cats
+    else:
+        st.info("Index data to see filters.")
+
 # --- Main Search UI ---
 if st.session_state.indexed_data is not None:
     query = st.text_input("Enter your search query...", placeholder="e.g., 'fresh organic apples'")
 
-    if query:
+    if query or active_filters:
         with st.spinner("Searching..."):
-            results = st.session_state.search_engine.search(query, alpha=alpha, top_k=top_k)
+            results = st.session_state.search_engine.search(query, filters=active_filters, alpha=alpha, top_k=top_k)
         
         if not results:
             st.info("No results found.")

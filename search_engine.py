@@ -78,12 +78,52 @@ class SearchEngine:
         
         logger.info(f"Successfully indexed {len(self.data)} items.")
 
-    def search(self, query: str, alpha: float = 0.5, top_k: int = 10) -> List[SearchResult]:
+    def _passes_filters(self, item: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+        """Helper to check if an item satisfies all filters."""
+        if not filters:
+            return True
+            
+        for field, filter_val in filters.items():
+            item_val = item.get(field)
+            if item_val is None:
+                return False
+                
+            # Range filter (Numeric)
+            if isinstance(filter_val, dict) and 'min' in filter_val and 'max' in filter_val:
+                try:
+                    # Attempt to parse as float (handle strings like "9.3" or "2,559")
+                    numeric_val = float(str(item_val).replace(',', ''))
+                    if not (filter_val['min'] <= numeric_val <= filter_val['max']):
+                        return False
+                except ValueError:
+                    return False
+            
+            # Array filter (Categorical)
+            elif isinstance(filter_val, list):
+                if not filter_val:
+                    continue # Empty selection means no restriction
+                
+                if isinstance(item_val, str):
+                    # Check if string contains any of the selected categories
+                    match = any(cat.lower() in item_val.lower() for cat in filter_val)
+                    if not match:
+                        return False
+                elif isinstance(item_val, list):
+                    match = any(cat in item_val for cat in filter_val)
+                    if not match:
+                        return False
+                else:
+                    if item_val not in filter_val:
+                        return False
+        return True
+
+    def search(self, query: str, filters: Dict[str, Any] = None, alpha: float = 0.5, top_k: int = 10) -> List[SearchResult]:
         """
-        Performs a hybrid search.
+        Performs a hybrid search with optional pre-filtering.
 
         Args:
             query (str): The search query.
+            filters (Dict[str, Any]): Filters to apply. Example: {"Rating": {"min": 8, "max": 10}, "Genre": ["Action"]}
             alpha (float): The weight of the keyword score (0.0 to 1.0). 
                            0.0 means semantic only, 1.0 means keyword only.
             top_k (int): The maximum number of results to return.
@@ -95,12 +135,34 @@ class SearchEngine:
             logger.error("Search engine is not indexed. Call `index()` first.")
             return []
 
-        if not query.strip():
+        filters = filters or {}
+        
+        # 1. Pre-filter items
+        valid_indices = []
+        for i, item in enumerate(self.data):
+            if self._passes_filters(item, filters):
+                valid_indices.append(i)
+                
+        if not valid_indices:
             return []
+
+        if not query.strip():
+            # If no text query, just return the filtered items
+            results = []
+            for idx in valid_indices[:top_k]:
+                results.append(
+                    SearchResult(
+                        item=self.data[idx],
+                        score=1.0,
+                        keyword_score=0.0,
+                        semantic_score=0.0
+                    )
+                )
+            return results
 
         query_lower = query.lower()
 
-        # 1. Keyword Scores
+        # 2. Keyword Scores
         tokenized_query = query_lower.split()
         bm25_scores = self.bm25.get_scores(tokenized_query)
         
@@ -108,27 +170,26 @@ class SearchEngine:
         if np.max(bm25_scores) > 0:
             bm25_scores = bm25_scores / np.max(bm25_scores)
 
-        # 2. Semantic Scores
+        # 3. Semantic Scores
         query_embedding = self.model.encode(query_lower, convert_to_numpy=True)
-        # cos_sim returns a 2D tensor, we extract the 1D numpy array
         semantic_scores = cos_sim(query_embedding, self.embeddings)[0].numpy()
-        
-        # Normalize semantic scores to [0, 1] (cosine similarity is typically [-1, 1])
-        # We can clip it to 0 as negative similarity isn't usually helpful for search ranking
         semantic_scores = np.clip(semantic_scores, 0, 1)
 
-        # 3. Hybrid Scoring
-        # score = alpha * keyword + (1 - alpha) * semantic
+        # 4. Hybrid Scoring
         combined_scores = (alpha * bm25_scores) + ((1.0 - alpha) * semantic_scores)
 
-        # 4. Rank and format results
-        # Get indices of top_k scores
+        # Mask out items that didn't pass the filters
+        mask = np.zeros(len(self.data), dtype=bool)
+        mask[valid_indices] = True
+        combined_scores[~mask] = -1.0
+
+        # 5. Rank and format results
         top_indices = np.argsort(combined_scores)[::-1][:top_k]
 
         results = []
         for idx in top_indices:
-            # Only include results with a score > 0 to avoid irrelevant matches
-            if combined_scores[idx] > 0:
+            # Only include results with a score > 0 and that passed the filter mask
+            if combined_scores[idx] > 0 and mask[idx]:
                 results.append(
                     SearchResult(
                         item=self.data[idx],
