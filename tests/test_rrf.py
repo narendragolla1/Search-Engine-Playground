@@ -1,9 +1,9 @@
 import json
 from sentence_transformers import SentenceTransformer
-from search_engine import SearchEngine
+from src.core.search_engine import SearchEngine
 
 def main():
-    with open('movies_test.json', 'r') as f:
+    with open('data/movies_test.json', 'r') as f:
         data = json.load(f)['movies']
         
     print(f"Loaded {len(data)} movies.")
