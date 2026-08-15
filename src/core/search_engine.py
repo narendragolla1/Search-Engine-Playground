@@ -1,4 +1,4 @@
-import logging
+from loguru import logger
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
@@ -6,10 +6,6 @@ import numpy as np
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from sentence_transformers.util import cos_sim
-
-# Configure basic logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 @dataclass
 class SearchResult:

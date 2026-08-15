@@ -1,19 +1,15 @@
 import json
-import os
 from groq import Groq
 from typing import List, Dict, Any, AsyncGenerator
 from src.api.schemas import ChatMessage
-from dotenv import load_dotenv
+from src.core.config import settings
+from loguru import logger
 
-# Load environment variables from .env file
-load_dotenv()
-
-api_key = os.environ.get("GROQ_API_KEY")
-if not api_key or api_key == "your_groq_api_key_here":
-    print("WARNING: GROQ_API_KEY is not set in the .env file. AI Assistant will not work.")
+if settings.groq_api_key == "your_groq_api_key_here":
+    logger.warning("GROQ_API_KEY is not set in the .env file. AI Assistant will not work.")
     client = None
 else:
-    client = Groq(api_key=api_key)
+    client = Groq(api_key=settings.groq_api_key)
 
 MODEL_NAME = "openai/gpt-oss-120b"
 
@@ -47,7 +43,7 @@ async def generate_chat_stream(messages: List[ChatMessage], search_results: List
 
     # 2. Call Groq
     stream = client.chat.completions.create(
-        model=MODEL_NAME,
+        model=settings.model_name,
         messages=formatted_messages,
         temperature=0.7,
         max_completion_tokens=2048,

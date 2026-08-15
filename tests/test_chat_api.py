@@ -1,30 +1,25 @@
-import requests
-import json
-import time
+import httpx
+import pytest
+from src.core.config import settings
 
-API_URL = "http://localhost:8000"
+API_URL = settings.api_url
 
 def test_chat():
-    print("--- Starting Chat API Test ---")
-    
-    # 1. First, search for context
-    print("\n1. Searching for context...")
     search_payload = {
         "query": "Which movie is about a mafia family?",
         "top_k": 3
     }
     
-    search_resp = requests.post(f"{API_URL}/search", json=search_payload)
-    if search_resp.status_code != 200:
-        print(f"❌ Failed to search: {search_resp.text}")
-        return
+    try:
+        search_resp = httpx.post(f"{API_URL}/search", json=search_payload)
+    except httpx.RequestError:
+        pytest.skip(f"API is not running at {API_URL}")
+        
+    assert search_resp.status_code == 200
         
     results = search_resp.json().get('results', [])
     context_items = [r['item'] for r in results]
-    print(f"✅ Retrieved {len(context_items)} items for context.")
 
-    # 2. Call /chat endpoint
-    print("\n2. Testing /chat streaming endpoint...")
     chat_payload = {
         "messages": [
             {"role": "user", "content": "Which movie is about a mafia family?"}
@@ -32,17 +27,13 @@ def test_chat():
         "context": context_items
     }
     
-    try:
-        with requests.post(f"{API_URL}/chat", json=chat_payload, stream=True) as r:
-            r.raise_for_status()
-            print("✅ Connected to stream. Receiving chunks:")
-            
-            for chunk in r.iter_content(chunk_size=None, decode_unicode=True):
-                if chunk:
-                    print(chunk, end="", flush=True)
-            print("\n✅ Stream completed successfully.")
-    except Exception as e:
-        print(f"\n❌ Chat API failed: {e}")
-
-if __name__ == "__main__":
-    test_chat()
+    with httpx.stream("POST", f"{API_URL}/chat", json=chat_payload) as r:
+        assert r.status_code == 200
+        
+        full_text = ""
+        for chunk in r.iter_text():
+            if chunk:
+                full_text += chunk
+        
+        assert len(full_text) > 0
+        assert "Godfather" in full_text

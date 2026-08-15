@@ -1,14 +1,28 @@
 import json
-import logging
 import streamlit as st
-import pandas as pd
-import requests
+import httpx
+import base64
+from typing import Dict, Any, Optional
+from src.core.config import settings
+from loguru import logger
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-# Configure basic logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Replace requests with httpx client
+API_URL = settings.api_url
+# Use a timeout for httpx
+HTTP_TIMEOUT = 10.0
 
-API_URL = "http://localhost:8000"
+# Decorator to retry network requests automatically
+@retry(
+    stop=stop_after_attempt(3), 
+    wait=wait_exponential(multiplier=1, min=1, max=5),
+    retry=retry_if_exception_type((httpx.RequestError, httpx.HTTPStatusError))
+)
+def fetch_api(method: str, endpoint: str, **kwargs):
+    with httpx.Client(timeout=HTTP_TIMEOUT) as client:
+        response = client.request(method, f"{API_URL}{endpoint}", **kwargs)
+        response.raise_for_status()
+        return response
 
 # --- UI Components ---
 def render_result_card(item: dict, score: float, rank: int):
@@ -186,15 +200,14 @@ with st.sidebar:
                                     "data": st.session_state.indexed_data,
                                     "searchable_fields": searchable_fields
                                 }
-                                response = requests.post(f"{API_URL}/index", json=payload)
-                                response.raise_for_status()
-                                
-                                st.success(f"Successfully built index for {len(st.session_state.indexed_data)} items!")
+                                resp = fetch_api("POST", "/index", json=payload)
+                                st.success(f"Successfully built index for {resp.json().get('items_indexed')} items!")
                             except Exception as e:
-                                st.error(f"Failed to build index: {e}")
+                                logger.error(f"Failed to build index: {e}")
+                                st.error(f"API Error: {e}")
         except Exception as e:
-            st.error(f"Error reading JSON file: {e}")
             logger.exception("Error processing file upload.")
+            st.error(f"Error reading JSON file: {e}")
 
     st.divider()
     st.header("3. Hyperparameters")
@@ -248,17 +261,18 @@ if st.session_state.indexed_data is not None:
             try:
                 # 1. Fetch Search Results
                 payload = {
-                    "query": query if query else "",
+                    "query": query,
                     "filters": active_filters if active_filters else None,
                     "top_k": top_k
                 }
-                response = requests.post(f"{API_URL}/search", json=payload)
-                response.raise_for_status()
+                response = fetch_api("POST", "/search", json=payload)
                 results = response.json().get("results", [])
                 
                 if not results:
                     st.info("No results found.")
                 else:
+                    st.success(f"Found {len(results)} results")
+                    
                     # 2. If AI Overview is enabled, stream the RAG response
                     if enable_ai and query:
                         st.markdown("### ✨ AI Overview")
@@ -271,9 +285,9 @@ if st.session_state.indexed_data is not None:
                         }
                         
                         def stream_chat():
-                            with requests.post(f"{API_URL}/chat", json=chat_payload, stream=True) as r:
+                            with httpx.stream("POST", f"{API_URL}/chat", json=chat_payload, timeout=HTTP_TIMEOUT) as r:
                                 r.raise_for_status()
-                                for chunk in r.iter_content(chunk_size=None, decode_unicode=True):
+                                for chunk in r.iter_text():
                                     if chunk:
                                         yield chunk
                                         
@@ -282,6 +296,7 @@ if st.session_state.indexed_data is not None:
                             with st.container(border=True):
                                 st.write_stream(stream_chat())
                         except Exception as e:
+                            logger.exception("AI Overview failed")
                             st.error(f"AI Overview failed: {e}")
                             
                         st.divider()

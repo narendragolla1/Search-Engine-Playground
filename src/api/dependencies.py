@@ -1,8 +1,6 @@
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from src.core.search_engine import SearchEngine
-import logging
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 class AppState:
     engine: SearchEngine = None
