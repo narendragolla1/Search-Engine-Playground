@@ -3,9 +3,18 @@ import os
 from groq import Groq
 from typing import List, Dict, Any, AsyncGenerator
 from src.api.schemas import ChatMessage
+from dotenv import load_dotenv
 
-# Initialize the Groq client using environment variable
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+# Load environment variables from .env file
+load_dotenv()
+
+api_key = os.environ.get("GROQ_API_KEY")
+if not api_key or api_key == "your_groq_api_key_here":
+    print("WARNING: GROQ_API_KEY is not set in the .env file. AI Assistant will not work.")
+    client = None
+else:
+    client = Groq(api_key=api_key)
+
 MODEL_NAME = "openai/gpt-oss-120b"
 
 def build_system_prompt(search_results: List[Dict[str, Any]]) -> str:
@@ -25,6 +34,10 @@ Respond conversationally, concisely, and professionally. When referencing items,
 async def generate_chat_stream(messages: List[ChatMessage], search_results: List[Dict[str, Any]]) -> AsyncGenerator[str, None]:
     """Calls Groq API and yields the response stream."""
     
+    if client is None:
+        yield "Error: GROQ_API_KEY is not configured in the .env file. Please add your API key to use the AI Assistant."
+        return
+
     # 1. Prepend the System Prompt to the messages
     system_prompt = build_system_prompt(search_results)
     
