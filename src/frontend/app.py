@@ -10,6 +10,51 @@ logger = logging.getLogger(__name__)
 
 API_URL = "http://localhost:8000"
 
+# --- UI Components ---
+def render_result_card(item: dict, score: float, rank: int):
+    """Dynamically renders a JSON object as a beautiful UI card."""
+    # 1. Try to find a Title
+    title_keys = ['Title', 'Name', 'Headline', 'Subject', 'title', 'name']
+    title = next((str(item[k]) for k in title_keys if k in item), f"Result #{rank}")
+    
+    # 2. Try to find an Image URL
+    image_url = None
+    for k, v in item.items():
+        if isinstance(v, str) and v.startswith('http') and any(ext in v.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif', 'm.media-amazon.com']):
+            image_url = v
+            break
+            
+    # 3. Try to find a long description field
+    desc_key = None
+    max_len = 0
+    for k, v in item.items():
+        if isinstance(v, str) and len(v) > max_len and k not in title_keys and v != image_url:
+            max_len = len(v)
+            desc_key = k
+
+    with st.container(border=True):
+        if image_url:
+            cols = st.columns([1, 4])
+            with cols[0]:
+                st.image(image_url, use_container_width=True)
+            text_col = cols[1]
+        else:
+            text_col = st.container()
+            
+        with text_col:
+            # Header
+            st.subheader(title)
+            st.caption(f"Rank: #{rank} | RRF Score: `{score:.4f}`")
+            
+            # Show a snippet of the longest text field
+            if desc_key and max_len > 40:
+                desc = item[desc_key]
+                st.markdown(f"*{desc[:250]}{'...' if len(desc) > 250 else ''}*")
+                
+            # Remaining data in an expander
+            with st.expander("View full JSON data"):
+                st.json(item)
+
 # --- Helper Functions ---
 def infer_field_types(data):
     numeric_fields = {} # field -> {'min': float, 'max': float}
@@ -208,8 +253,7 @@ if st.session_state.indexed_data is not None:
                 else:
                     st.success(f"Found {len(results)} results")
                     for i, res in enumerate(results):
-                        with st.expander(f"#{i+1} - Score: {res['score']:.4f}"):
-                            st.json(res['item'])
+                        render_result_card(res['item'], res['score'], i + 1)
             except Exception as e:
                 st.error(f"Search API failed: {e}")
 else:
