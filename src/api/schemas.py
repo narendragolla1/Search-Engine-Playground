@@ -5,10 +5,12 @@ class IndexRequest(BaseModel):
     data: List[Dict[str, Any]] = Field(..., description="The list of JSON objects to index")
     searchable_fields: List[str] = Field(..., description="The fields in the JSON objects to build the search index upon")
     field_weights: Optional[Dict[str, float]] = Field(default=None, description="Optional weights for each field. e.g. {'Title': 2.0}")
+    background: bool = Field(default=False, description="If true, indexing will happen in the background and return immediately")
 
 class IndexResponse(BaseModel):
     message: str
     items_indexed: int
+    task_id: Optional[str] = None
 
 class UpdateDocumentRequest(BaseModel):
     document_id: str

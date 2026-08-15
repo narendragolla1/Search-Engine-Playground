@@ -75,7 +75,8 @@ class SearchEngine:
                     
         return " ".join(text_parts).lower()
 
-    def _parse_point_id(self, raw_id: Any) -> Any:
+    def _parse_point_id(self, item: Dict[str, Any]) -> Any:
+        raw_id = item.get("id") or item.get("imdbID") or item.get("Title")
         if raw_id is None:
             return str(uuid.uuid4())
         try:
@@ -100,7 +101,7 @@ class SearchEngine:
         payloads = []
         
         for item in data:
-            point_ids.append(self._parse_point_id(item.get("id")))
+            point_ids.append(self._parse_point_id(item))
                 
             combined_text = self._build_searchable_text(item, searchable_fields)
             keyword_text = self._build_keyword_text(item, searchable_fields, field_weights)
@@ -108,38 +109,61 @@ class SearchEngine:
             texts_to_embed.append(combined_text)
             keyword_texts_to_embed.append(keyword_text)
             
-            payload = item.copy()
+            payload = {}
+            for k, v in item.items():
+                if isinstance(v, str):
+                    try:
+                        # Try to parse as float for range filters (e.g. imdbRating)
+                        if '.' in v:
+                            payload[k] = float(v)
+                        else:
+                            payload[k] = int(v)
+                    except ValueError:
+                        payload[k] = v
+                else:
+                    payload[k] = v
+                    
             payload["_searchable_text"] = combined_text
             payload["_searchable_fields"] = searchable_fields
             payloads.append(payload)
 
-        logger.info("Generating dense embeddings...")
-        dense_embeddings = self.model.encode(texts_to_embed, convert_to_numpy=True)
-        
-        logger.info("Generating sparse embeddings (SPLADE)...")
-        sparse_embeddings = list(self.sparse_model.embed(keyword_texts_to_embed))
-        
-        points = []
-        for i in range(len(data)):
-            points.append(
-                models.PointStruct(
-                    id=point_ids[i],
-                    vector={
-                        "dense": dense_embeddings[i].tolist(),
-                        "splade": models.SparseVector(
-                            indices=sparse_embeddings[i].indices.tolist(),
-                            values=sparse_embeddings[i].values.tolist()
-                        )
-                    },
-                    payload=payloads[i]
-                )
-            )
+        logger.info(f"Generating embeddings and upserting in batches (size: 100)...")
+        batch_size = 100
+        for i in range(0, len(data), batch_size):
+            batch_texts = texts_to_embed[i:i+batch_size]
+            batch_keywords = keyword_texts_to_embed[i:i+batch_size]
+            batch_ids = point_ids[i:i+batch_size]
+            batch_payloads = payloads[i:i+batch_size]
             
-        self.qdrant.upsert(
-            collection_name=self.collection_name,
-            points=points
-        )
-        logger.info(f"Successfully indexed {len(points)} items.")
+            # Generate dense embeddings
+            dense_embeddings = self.model.encode(batch_texts, convert_to_numpy=True)
+            
+            # Generate sparse embeddings
+            sparse_embeddings = list(self.sparse_model.embed(batch_keywords))
+            
+            points = []
+            for j in range(len(batch_texts)):
+                points.append(
+                    models.PointStruct(
+                        id=batch_ids[j],
+                        vector={
+                            "dense": dense_embeddings[j].tolist(),
+                            "splade": models.SparseVector(
+                                indices=sparse_embeddings[j].indices.tolist(),
+                                values=sparse_embeddings[j].values.tolist()
+                            )
+                        },
+                        payload=batch_payloads[j]
+                    )
+                )
+                
+            self.qdrant.upsert(
+                collection_name=self.collection_name,
+                points=points
+            )
+            logger.info(f"Indexed batch {i//batch_size + 1}/{(len(data)-1)//batch_size + 1}")
+            
+        logger.info(f"Successfully indexed {len(data)} items.")
 
     def add_documents(self, documents: List[Dict[str, Any]], searchable_fields: List[str], field_weights: Optional[Dict[str, float]] = None):
         self.index(documents, searchable_fields, field_weights)
@@ -153,7 +177,7 @@ class SearchEngine:
         self.qdrant.delete(
             collection_name=self.collection_name,
             points_selector=models.PointIdsList(
-                points=[self._parse_point_id(document_id)],
+                points=[self._parse_point_id({"id": document_id})],
             ),
         )
 
@@ -204,18 +228,17 @@ class SearchEngine:
             scroll_res = self.qdrant.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=qdrant_filter,
-                offset=offset,
-                limit=top_k,
+                limit=fetch_limit,
                 with_payload=True,
                 with_vectors=False
             )
             points, _ = scroll_res
             return [
                 SearchResult(
-                    item={k:v for k,v in p.payload.items() if not k.startswith('_')},
+                    item={k:str(v) for k,v in p.payload.items() if not k.startswith('_')},
                     score=1.0
                 ) for p in points
-            ]
+            ][offset:fetch_limit]
 
         query_lower = query.lower()
         query_dense = self.model.encode(query_lower, convert_to_numpy=True)
@@ -244,22 +267,24 @@ class SearchEngine:
             query=models.RrfQuery(
                 rrf=models.Rrf()
             ),
-            limit=top_k,
-            offset=offset,
+            limit=fetch_limit,
             with_payload=True,
         ).points
 
         results = []
         valid_pairs = []
         for point in hybrid_results:
-            clean_item = {k:v for k,v in point.payload.items() if not k.startswith('_')}
+            clean_item = {k:str(v) for k,v in point.payload.items() if not k.startswith('_')}
             results.append(SearchResult(item=clean_item, score=point.score))
             valid_pairs.append((query_lower, point.payload.get("_searchable_text", "")))
 
         if self.reranker and valid_pairs and query.strip():
+            import math
             rerank_scores = self.reranker.predict(valid_pairs)
             for i, r in enumerate(results):
-                r.score = float(rerank_scores[i])
+                # Apply sigmoid to convert logits to 0-1 range
+                score = 1 / (1 + math.exp(-float(rerank_scores[i])))
+                r.score = score
             results.sort(key=lambda x: x.score, reverse=True)
 
-        return results
+        return results[offset:offset+top_k]

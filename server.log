@@ -1,0 +1,73 @@
+INFO:     Started server process [80351]
+INFO:     Waiting for application startup.
+2026-08-15 17:57:01.173 | INFO     | src.api.dependencies:init_search_engine:12 - Loading NLP models for Search Engine...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 7162.14it/s]
+Loading weights:   0%|          | 0/105 [00:00<?, ?it/s]Loading weights: 100%|██████████| 105/105 [00:00<00:00, 6694.67it/s]
+2026-08-15 17:57:15.815 | INFO     | src.api.dependencies:init_search_engine:16 - Search Engine initialized successfully.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:56552 - "GET /docs HTTP/1.1" 200 OK
+2026-08-15 17:57:18.238 | INFO     | src.core.search_engine:index:96 - Indexing 29 items into Qdrant...
+2026-08-15 17:57:18.239 | INFO     | src.core.search_engine:index:130 - Generating embeddings and upserting in batches (size: 100)...
+2026-08-15 17:57:22.265 | INFO     | src.core.search_engine:index:164 - Indexed batch 1/1
+2026-08-15 17:57:22.266 | INFO     | src.core.search_engine:index:166 - Successfully indexed 29 items.
+INFO:     127.0.0.1:56554 - "POST /index HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56556 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56558 - "GET / HTTP/1.1" 200 OK
+2026-08-15 17:57:22.321 | INFO     | src.core.search_engine:index:96 - Indexing 29 items into Qdrant...
+2026-08-15 17:57:22.321 | INFO     | src.core.search_engine:index:130 - Generating embeddings and upserting in batches (size: 100)...
+2026-08-15 17:57:23.179 | INFO     | src.core.search_engine:index:164 - Indexed batch 1/1
+2026-08-15 17:57:23.179 | INFO     | src.core.search_engine:index:166 - Successfully indexed 29 items.
+INFO:     127.0.0.1:56560 - "POST /index HTTP/1.1" 200 OK
+2026-08-15 17:57:23.203 | INFO     | src.core.search_engine:index:96 - Indexing 29 items into Qdrant...
+2026-08-15 17:57:23.204 | INFO     | src.core.search_engine:index:130 - Generating embeddings and upserting in batches (size: 100)...
+2026-08-15 17:57:24.550 | INFO     | src.core.search_engine:index:164 - Indexed batch 1/1
+2026-08-15 17:57:24.551 | INFO     | src.core.search_engine:index:166 - Successfully indexed 29 items.
+INFO:     127.0.0.1:56562 - "POST /index HTTP/1.1" 200 OK
+2026-08-15 17:57:24.574 | WARNING  | src.core.search_engine:index:93 - Attempted to index empty data.
+INFO:     127.0.0.1:56564 - "POST /index HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56566 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56568 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56570 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56572 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56574 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56576 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56578 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56580 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56582 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56584 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56586 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56588 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56590 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56592 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56594 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56596 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56598 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56600 - "POST /search HTTP/1.1" 200 OK
+2026-08-15 17:57:25.777 | INFO     | src.core.search_engine:index:96 - Indexing 1 items into Qdrant...
+2026-08-15 17:57:25.778 | INFO     | src.core.search_engine:index:130 - Generating embeddings and upserting in batches (size: 100)...
+2026-08-15 17:57:25.830 | INFO     | src.core.search_engine:index:164 - Indexed batch 1/1
+2026-08-15 17:57:25.830 | INFO     | src.core.search_engine:index:166 - Successfully indexed 1 items.
+INFO:     127.0.0.1:56602 - "POST /index HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56604 - "POST /search HTTP/1.1" 200 OK
+2026-08-15 17:57:25.939 | INFO     | src.core.search_engine:index:96 - Indexing 1 items into Qdrant...
+2026-08-15 17:57:25.939 | INFO     | src.core.search_engine:index:130 - Generating embeddings and upserting in batches (size: 100)...
+2026-08-15 17:57:25.981 | INFO     | src.core.search_engine:index:164 - Indexed batch 1/1
+2026-08-15 17:57:25.981 | INFO     | src.core.search_engine:index:166 - Successfully indexed 1 items.
+INFO:     127.0.0.1:56606 - "PUT /document HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56608 - "DELETE /document/tt_test_synthetic_001 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56610 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56612 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56614 - "POST /search HTTP/1.1" 200 OK
+2026-08-15 17:57:26.205 | INFO     | src.core.search_engine:index:96 - Indexing 2 items into Qdrant...
+2026-08-15 17:57:26.205 | INFO     | src.core.search_engine:index:130 - Generating embeddings and upserting in batches (size: 100)...
+2026-08-15 17:57:26.263 | INFO     | src.core.search_engine:index:164 - Indexed batch 1/1
+2026-08-15 17:57:26.263 | INFO     | src.core.search_engine:index:166 - Successfully indexed 2 items.
+INFO:     127.0.0.1:56616 - "POST /index HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56618 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56620 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56622 - "POST /chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56625 - "POST /search HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56628 - "POST /chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56630 - "POST /chat HTTP/1.1" 200 OK

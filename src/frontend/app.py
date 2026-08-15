@@ -50,7 +50,7 @@ def render_result_card(item: dict, score: float, rank: int):
         if image_url:
             cols = st.columns([1, 4])
             with cols[0]:
-                st.image(image_url, use_column_width=True)
+                st.image(image_url, use_container_width=True)
             text_col = cols[1]
         else:
             text_col = st.container()

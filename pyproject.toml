@@ -26,3 +26,13 @@ dependencies = [
 dev = [
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "search: core search quality tests (keyword, semantic, hybrid)",
+    "filter: numeric range and categorical filter tests",
+    "paginate: pagination and offset tests",
+    "crud: index / update / delete document lifecycle tests",
+    "chat: RAG /chat endpoint tests (requires GROQ_API_KEY)",
+]

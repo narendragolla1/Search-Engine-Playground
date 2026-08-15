@@ -45,14 +45,29 @@ async def analyze_schema_endpoint(request: SchemaAnalysisRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/index", response_model=IndexResponse)
-async def index_data(request: IndexRequest, engine: SearchEngine = Depends(get_search_engine)):
+async def index_data(request: IndexRequest, background_tasks: BackgroundTasks, engine: SearchEngine = Depends(get_search_engine)):
     try:
-        await run_in_threadpool(engine.index, request.data, request.searchable_fields, request.field_weights)
-        return IndexResponse(
-            message="Successfully indexed data.",
-            items_indexed=len(request.data)
-        )
+        import uuid
+        task_id = str(uuid.uuid4())
+        
+        if request.background:
+            background_tasks.add_task(
+                engine.index, request.data, request.searchable_fields, request.field_weights
+            )
+            return IndexResponse(
+                message="Indexing started in the background.",
+                items_indexed=0,
+                task_id=task_id
+            )
+        else:
+            await run_in_threadpool(engine.index, request.data, request.searchable_fields, request.field_weights)
+            return IndexResponse(
+                message="Successfully indexed data.",
+                items_indexed=len(request.data)
+            )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/document", response_model=GenericResponse)
