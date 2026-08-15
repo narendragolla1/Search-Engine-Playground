@@ -19,11 +19,21 @@ class UpdateDocumentRequest(BaseModel):
 class GenericResponse(BaseModel):
     message: str
 
+class SchemaAnalysisRequest(BaseModel):
+    sample_data: List[Dict[str, Any]] = Field(..., description="Sample JSON data to analyze")
+
+class SchemaAnalysisResponse(BaseModel):
+    searchable_fields: List[str]
+    field_weights: Dict[str, float]
+    filterable_fields: List[str]
+
 class SearchRequest(BaseModel):
     query: str = Field(default="", description="The search query string")
     filters: Optional[Dict[str, Any]] = Field(default=None, description="Optional filters to apply before searching")
     top_k: int = Field(default=10, description="The number of results to return")
     offset: int = Field(default=0, description="Offset for pagination")
+    extract_intent: bool = Field(default=False, description="If true, use LLM to extract filters from query")
+    filterable_fields: Optional[List[str]] = Field(default=None, description="List of valid filter fields for intent extraction")
 
 class SearchResultItem(BaseModel):
     item: Dict[str, Any]

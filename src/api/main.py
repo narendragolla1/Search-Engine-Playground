@@ -1,13 +1,18 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 from contextlib import asynccontextmanager
+from typing import Dict, Any
 
-from src.api.schemas import IndexRequest, IndexResponse, SearchRequest, SearchResponse, SearchResultItem, ChatRequest, UpdateDocumentRequest, GenericResponse
+from src.api.schemas import (
+    IndexRequest, IndexResponse, SearchRequest, SearchResponse, 
+    SearchResultItem, ChatRequest, UpdateDocumentRequest, GenericResponse,
+    SchemaAnalysisRequest, SchemaAnalysisResponse
+)
 from src.api.dependencies import init_search_engine, get_search_engine
 from src.core.search_engine import SearchEngine
-from src.api.llm_service import generate_chat_stream
+from src.api.llm_service import generate_chat_stream, analyze_schema, extract_intent
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,6 +31,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to the Advanced Search Engine API"}
+
+@app.post("/schema/analyze", response_model=SchemaAnalysisResponse)
+async def analyze_schema_endpoint(request: SchemaAnalysisRequest):
+    try:
+        result = await analyze_schema(request.sample_data)
+        return SchemaAnalysisResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/index", response_model=IndexResponse)
 async def index_data(request: IndexRequest, engine: SearchEngine = Depends(get_search_engine)):
@@ -57,10 +74,17 @@ async def delete_document(document_id: str, engine: SearchEngine = Depends(get_s
 @app.post("/search", response_model=SearchResponse)
 async def search(request: SearchRequest, engine: SearchEngine = Depends(get_search_engine)):
     try:
+        filters = request.filters or {}
+        
+        if request.extract_intent and request.filterable_fields and request.query:
+            extracted_filters = await extract_intent(request.query, request.filterable_fields)
+            if extracted_filters:
+                filters.update(extracted_filters)
+                
         results = await run_in_threadpool(
             engine.search,
             query=request.query,
-            filters=request.filters,
+            filters=filters,
             top_k=request.top_k,
             offset=request.offset
         )
