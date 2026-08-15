@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 import uuid
 
 import numpy as np
-from sentence_transformers import SentenceTransformer, CrossEncoder
+from sentence_transformers import SentenceTransformer
 from fastembed import SparseTextEmbedding
 
 from qdrant_client import QdrantClient
@@ -15,15 +15,14 @@ class SearchResult:
     """Represents a single result from the search engine."""
     item: Dict[str, Any]
     score: float
-    keyword_score: float = 0.0 # Keeping for compatibility
-    semantic_score: float = 0.0 # Keeping for compatibility
+    searchable_text: str = ""  # internal field used for ColBERT reranking
 
 class SearchEngine:
     """
     A generic hybrid search engine combining sparse (SPLADE) and dense (SentenceTransformers) search natively in Qdrant.
     """
 
-    def __init__(self, model: SentenceTransformer, reranker: CrossEncoder = None):
+    def __init__(self, model: SentenceTransformer, reranker=None):
         self.model = model
         self.reranker = reranker
         self.sparse_model = SparseTextEmbedding(model_name="prithivida/Splade_PP_en_v1")
@@ -216,13 +215,18 @@ class SearchEngine:
             return models.Filter(must=must_conditions)
         return None
 
+    RERANK_POOL = 50  # fetch this many candidates for ColBERT to rerank over
+
     def search(self, query: str, filters: Dict[str, Any] = None, top_k: int = 10, offset: int = 0) -> List[SearchResult]:
         if not self.qdrant.collection_exists(self.collection_name):
             logger.error("Search engine collection does not exist.")
             return []
 
         qdrant_filter = self._build_qdrant_filter(filters)
-        fetch_limit = top_k + offset
+        # Expand the candidate pool when ColBERT reranker is active so it has
+        # more items to apply MaxSim over before trimming to top_k.
+        candidate_pool = max(top_k, self.RERANK_POOL) if self.reranker else top_k
+        fetch_limit = candidate_pool + offset
 
         if not query.strip():
             scroll_res = self.qdrant.scroll(
@@ -272,19 +276,42 @@ class SearchEngine:
         ).points
 
         results = []
-        valid_pairs = []
         for point in hybrid_results:
             clean_item = {k:str(v) for k,v in point.payload.items() if not k.startswith('_')}
-            results.append(SearchResult(item=clean_item, score=point.score))
-            valid_pairs.append((query_lower, point.payload.get("_searchable_text", "")))
+            results.append(SearchResult(
+                item=clean_item,
+                score=point.score,
+                searchable_text=point.payload.get("_searchable_text", "")
+            ))
 
-        if self.reranker and valid_pairs and query.strip():
-            import math
-            rerank_scores = self.reranker.predict(valid_pairs)
-            for i, r in enumerate(results):
-                # Apply sigmoid to convert logits to 0-1 range
-                score = 1 / (1 + math.exp(-float(rerank_scores[i])))
-                r.score = score
-            results.sort(key=lambda x: x.score, reverse=True)
+        if self.reranker and results and query.strip():
+            from pylate import rank
+            docs = [
+                r.searchable_text or " ".join(str(v) for v in r.item.values())
+                for r in results
+            ]
+            
+            queries_embeddings = self.reranker.encode(
+                [query_lower],
+                is_query=True
+            )
+            documents_embeddings = self.reranker.encode(
+                [docs],
+                is_query=False
+            )
+            documents_ids = [list(range(len(docs)))]
+            
+            reranked = rank.rerank(
+                documents_ids=documents_ids,
+                queries_embeddings=queries_embeddings,
+                documents_embeddings=documents_embeddings,
+            )[0]  # [0] because we pass a single query
+            
+            new_results = []
+            for entry in reranked:
+                r = results[entry["id"]]
+                r.score = float(entry["score"])
+                new_results.append(r)
+            results = new_results
 
         return results[offset:offset+top_k]

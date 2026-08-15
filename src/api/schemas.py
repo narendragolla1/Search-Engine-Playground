@@ -40,16 +40,6 @@ class SearchRequest(BaseModel):
 class SearchResultItem(BaseModel):
     item: Dict[str, Any]
     score: float
-    keyword_score: float
-    semantic_score: float
 
 class SearchResponse(BaseModel):
     results: List[SearchResultItem]
-
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-class ChatRequest(BaseModel):
-    messages: List[ChatMessage] = Field(..., description="Conversation history including the latest user query")
-    context: List[Dict[str, Any]] = Field(default=[], description="The pre-fetched search results to inject into the LLM")

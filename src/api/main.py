@@ -1,18 +1,17 @@
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
 from src.api.schemas import (
-    IndexRequest, IndexResponse, SearchRequest, SearchResponse, 
-    SearchResultItem, ChatRequest, UpdateDocumentRequest, GenericResponse,
+    IndexRequest, IndexResponse, SearchRequest, SearchResponse,
+    SearchResultItem, UpdateDocumentRequest, GenericResponse,
     SchemaAnalysisRequest, SchemaAnalysisResponse
 )
 from src.api.dependencies import init_search_engine, get_search_engine
 from src.core.search_engine import SearchEngine
-from src.api.llm_service import generate_chat_stream, analyze_schema, extract_intent
+from src.api.llm_service import analyze_schema, extract_intent
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -49,7 +48,7 @@ async def index_data(request: IndexRequest, background_tasks: BackgroundTasks, e
     try:
         import uuid
         task_id = str(uuid.uuid4())
-        
+
         if request.background:
             background_tasks.add_task(
                 engine.index, request.data, request.searchable_fields, request.field_weights
@@ -90,12 +89,12 @@ async def delete_document(document_id: str, engine: SearchEngine = Depends(get_s
 async def search(request: SearchRequest, engine: SearchEngine = Depends(get_search_engine)):
     try:
         filters = request.filters or {}
-        
+
         if request.extract_intent and request.filterable_fields and request.query:
             extracted_filters = await extract_intent(request.query, request.filterable_fields)
             if extracted_filters:
                 filters.update(extracted_filters)
-                
+
         results = await run_in_threadpool(
             engine.search,
             query=request.query,
@@ -103,25 +102,12 @@ async def search(request: SearchRequest, engine: SearchEngine = Depends(get_sear
             top_k=request.top_k,
             offset=request.offset
         )
-        
-        # Convert internal SearchResult objects to Pydantic Response schemas
-        formatted_results = [
-            SearchResultItem(
-                item=r.item,
-                score=r.score,
-                keyword_score=r.keyword_score,
-                semantic_score=r.semantic_score
-            ) for r in results
-        ]
-        
-        return SearchResponse(results=formatted_results)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/chat")
-async def chat(request: ChatRequest):
-    try:
-        stream = generate_chat_stream(request.messages, request.context)
-        return StreamingResponse(stream, media_type="text/plain")
+        formatted_results = [
+            SearchResultItem(item=r.item, score=r.score)
+            for r in results
+        ]
+
+        return SearchResponse(results=formatted_results)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
