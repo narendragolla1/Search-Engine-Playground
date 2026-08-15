@@ -10,7 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 # Replace requests with httpx client
 API_URL = settings.api_url
 # Use a timeout for httpx
-HTTP_TIMEOUT = 10.0
+HTTP_TIMEOUT = 60.0
 
 # Decorator to retry network requests automatically
 @retry(
